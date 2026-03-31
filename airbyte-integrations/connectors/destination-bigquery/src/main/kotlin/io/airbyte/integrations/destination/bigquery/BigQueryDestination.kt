@@ -7,7 +7,9 @@ import com.fasterxml.jackson.databind.JsonNode
 import com.google.auth.oauth2.GoogleCredentials
 import com.google.cloud.bigquery.BigQuery
 import com.google.cloud.bigquery.BigQueryException
+import com.google.api.gax.retrying.RetrySettings
 import com.google.cloud.bigquery.BigQueryOptions
+import com.google.cloud.http.HttpTransportOptions
 import com.google.cloud.bigquery.QueryJobConfiguration
 import com.google.cloud.storage.Storage
 import com.google.cloud.storage.StorageOptions
@@ -346,10 +348,29 @@ class BigQueryDestination : BaseConnector(), Destination {
             try {
                 val bigQueryBuilder = BigQueryOptions.newBuilder()
                 val credentials = getServiceAccountCredentials(config)
+                val transportOptions = BigQueryOptions.getDefaultHttpTransportOptions().toBuilder()
+                    .setConnectTimeout(300_000)
+                    .setReadTimeout(300_000)
+                    .build()
                 return bigQueryBuilder
                     .setProjectId(projectId)
                     .setCredentials(credentials)
                     .setHeaderProvider(getHeaderProvider())
+                    .setTransportOptions(transportOptions)
+                    .setRetrySettings(
+                        RetrySettings.newBuilder()
+                            // Most of the values are default. We need to override them all if we want to
+                            // set a different value for `setMaxAttempts`..............
+                            .setInitialRetryDelay(org.threeten.bp.Duration.ofMillis(1000L))
+                            .setMaxRetryDelay(org.threeten.bp.Duration.ofMillis(32_000L))
+                            .setTotalTimeout(org.threeten.bp.Duration.ofMillis(600_000L))
+                            .setInitialRpcTimeout(org.threeten.bp.Duration.ofMillis(50_000L))
+                            .setRpcTimeoutMultiplier(1.0)
+                            .setMaxRpcTimeout(org.threeten.bp.Duration.ofMillis(500_000L))
+                            .setMaxAttempts(15)
+                            .setRetryDelayMultiplier(1.5)
+                            .build()
+                    )
                     .build()
                     .service
             } catch (e: IOException) {
